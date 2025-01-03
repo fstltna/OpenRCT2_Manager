@@ -1,0 +1,291 @@
+#!/usr/bin/perl
+use strict;
+use warnings;
+
+use UI::Dialog;
+use Term::ReadKey;
+use Term::ANSIScreen qw(cls);
+
+my $FileEditor = "/bin/nano";
+my $InitDName = "/home/openrct-user/bin/openrct2";
+my $RCT2DIR = "/home/openrct-user/OpenRCT2";
+my $BackupCommand = "/home/openrct-user/OpenRCT2_Backup/openrctbackup.pl -snapshot";
+my $GameLog = "/home/openrct-user/OpenRCT2/OpenRCT2Screen.log";
+my $Pager = "/usr/bin/less";
+my $RCMCDir = "/home/openrct-user/OpenRCT2_Manager";
+my $BackupToolDir = "/home/openrct-user/OpenRCT2_Backup";
+my $StartupDir = "/home/openrct-user/OpenRCT2_Startup";
+my $UpdateCommand = "/usr/bin/git pull";
+my $BinDir = "/home/openrct-user/bin";
+my $DEBUG_MODE = "off";
+my $TEXTDIR = "$RCT2DIR/resources/text";
+my $ConfigDir = "/home/openrct-user/.config/OpenRCT2";
+
+###################################################
+# No changes below here
+###################################################
+
+my $RCMC_ver = "1.0.0";
+my $Record = "false";	# Are results saved?
+my $TempDir = "/tmp";
+my $RobotName = "";
+my $BotVersion = "";
+my $UserName = "";
+my $ServerStatus = "foo";
+
+sub PrintDebugCommand
+{
+	if ($DEBUG_MODE eq "off")
+	{
+		return;
+	}
+	my $PassedString = shift;
+	print "About to run:\n$PassedString\n";
+	print "Press Enter To Run This:";
+	my $entered = <STDIN>;
+}
+
+my $d = new UI::Dialog ( backtitle => "Roller Coaster Tycoon Management Console v$RCMC_ver", height => 20, width => 65, listheight => 5,
+	order => [ 'ascii', 'cdialog', 'xdialog' ]);
+
+my $windowtitle = "Welcome to the Roller Coaster Tycoon Management Console!";
+my $enjoyedtitle = "We hope you enjoyed RCMC!";
+my $introtext =
+"This is the Roller Coaster Tycoon Management Console, a utility for Roller Coaster Tycoon operators to manage their servers from a text UI rather than the command line.";
+
+$d->msgbox( title => $windowtitle, text => $introtext );
+
+if (($d->state() eq "ESC") || ($d->state() eq "CANCEL"))
+{
+	exit 0;
+}
+
+my $menuselection = "";
+
+sub CheckServerStatus
+{
+	my $running=`ps ax|grep openrct2-server|grep -v grep`;
+	if ($running ne "")
+	{
+		$ServerStatus = "Running";
+	}
+	else
+	{
+		$ServerStatus = "Stopped";
+	}
+
+}
+
+sub DoUpdate
+{
+	my $DesiredDir = $_[0];
+
+	# Update desired utility
+	chdir ($DesiredDir);
+	PrintDebugCommand("Running $UpdateCommand in $DesiredDir\n");
+	system("$UpdateCommand");
+	print "Press Enter To Continue";
+	my $entered = <STDIN>;
+}
+
+sub UpdateToolsMenu
+{
+	my $WantRespawn="ON";
+	CheckServerStatus();
+	if (-f "$RCT2DIR/nostart")
+	{
+		$WantRespawn="OFF";
+	}
+	$menuselection = $d->menu( title => "Update Utilities Menu", text => "Server is $ServerStatus and respawn is $WantRespawn - Select one:",
+                            list => [ '1', 'Update RCMC',
+                                      '2', 'Update Backup',
+                                      '3', 'Update Startup',
+                                      'q', 'Main Menu' ] );
+}
+
+sub UpdateTools
+{
+	while (-1)
+	{
+		UpdateToolsMenu();
+		if (($menuselection eq "CANCEL") || ($menuselection eq "ESC") || ($menuselection eq "") || ($menuselection eq "q") || ($menuselection eq "Q"))
+		{
+			return;
+		}
+		elsif ($menuselection eq "1")
+		{
+			# Update RCMC
+			DoUpdate($RCMCDir);
+		}
+		elsif ($menuselection eq "2")
+		{
+			# Update BackupToolDir
+			DoUpdate($BackupToolDir);
+		}
+		elsif ($menuselection eq "3")
+		{
+			# Update Startup
+			DoUpdate($StartupDir);
+			if (! -d $BinDir)
+			{
+				print "Binary dir $BinDir not found, creating...\n";
+				system("mkdir -p $BinDir");
+			}
+			system("cp $StartupDir/coffeemud $BinDir");
+			system("cp $StartupDir/startcoffeemud $RCT2DIR");
+			system("cp $StartupDir/InstallUNIX-auto.sh $RCT2DIR");
+		}
+	}
+}
+
+sub ProcesKillMenu
+{
+        my $WantRespawn="ON";
+        CheckServerStatus();
+        if (-f "$RCT2DIR/nostart")
+        {
+                $WantRespawn="OFF";
+        }
+
+        $menuselection = $d->menu( title => "Process Kill Menu", text => "Server is $ServerStatus and respawn is $WantRespawn - Select one:",
+                            list => [ '1', 'Request Clean',
+                                      '2', 'Force Kill',
+                                      'q', 'Main Menu' ] );
+}
+
+sub ProcessKill
+{
+        while (-1)
+        {
+		CheckServerStatus();
+                ProcesKillMenu();
+                if (($menuselection eq "CANCEL") || ($menuselection eq "ESC") || ($menuselection eq "") || ($menuselection eq "q") || ($menuselection eq "Q"))
+                {
+                        return;
+                }
+                elsif ($menuselection eq "1")
+                {
+			if ($ServerStatus eq "Running")
+			{
+				# Reset the server process
+				print "Killing OpenRCT2 process, please wait...";
+				system("killall openrct2-server");
+				sleep(1);
+			}
+			else
+			{
+				print "Process not running...";
+				sleep(3)
+			}
+
+                }
+                elsif ($menuselection eq "2")
+                {
+                        # Force-kill server process
+                        if ($d->yesno( text => "Confirm force-killing the OpenRCT2 process", text => "Are you *SURE* you want to force kill the OpenRCT2 process?\nYou should first try the \#1 option and see if that works" ))
+                        {
+				if ($ServerStatus eq "Running")
+				{
+					print "Force-killing OpenRCT2 process, please wait for 5 seconds...";
+					system("killall -s9 openrct2-server");
+					sleep(5);
+				}
+				else
+				{
+					print "Process not running...";
+					sleep(3)
+				}
+                        }
+                }
+        }
+}
+
+sub MainMenu
+{
+	my $WantRespawn="ON";
+	CheckServerStatus();
+	if (-f "$RCT2DIR/nostart")
+	{
+		$WantRespawn="OFF";
+	}
+
+	$menuselection = $d->menu( title => "Main Menu", text => "Server is $ServerStatus and respawn is $WantRespawn - Select one:",
+                            list => [ '1', 'Start Watchdog',
+                                      '2', 'Stop Watchdog',
+                                      '3', 'Server Console',
+                                      '4', 'Turn Respawn Off',
+                                      '5', 'Turn Respawn On',
+                                      '6', 'Edit config.ini',
+                                      '7', 'Backup Game',
+                                      '8', 'Kill Game Process',
+                                      '9', 'Update Utils',
+                                      'q', 'Quit RCMC' ] );
+}
+
+while (-1)
+{
+	MainMenu();
+	if (($menuselection eq "CANCEL") || ($menuselection eq "ESC") || ($menuselection eq "") || ($menuselection eq "q") || ($menuselection eq "Q"))
+	{
+		$d->msgbox( title => $enjoyedtitle, text => "Thanks for using RCMC..." );
+		exit 0;
+	}
+	if ($menuselection eq "1")
+	{
+                if ($d->yesno( text => "Confirm starting the server watchdog", text => "Are you sure you want to start the server watchdog? You should likely use option #8 instead..." ))
+                {
+                        system("$InitDName start");
+                        sleep(10);
+                }
+	}
+	elsif ($menuselection eq "2")
+	{
+		if ($d->yesno( text => "Confirm stopping the server watchdog", text => "Are you sure you want to shut down the server watchdog?" ))
+		{
+			system("$InitDName stop");
+			sleep(5);
+		}
+	}
+	elsif ($menuselection eq "3")
+	{
+		$d->msgbox( text => "To exit the Roller Coaster Tycoon console and return to RCMC press CTRL-A CTRL-D" );
+		system("screen -r OpenRCT2");
+	}
+	elsif ($menuselection eq "4")
+	{
+		# Turn off respawn
+		system("touch $RCT2DIR/nostart");
+	}
+	elsif ($menuselection eq "5")
+	{
+		# Turn respawn back on
+		if (-f "$RCT2DIR/nostart")
+		{
+			unlink("$RCT2DIR/nostart");
+		}
+	}
+	elsif ($menuselection eq "6")
+	{
+		# Edit config.ini file
+		system("$FileEditor $ConfigDir/config.ini");
+	}
+	elsif ($menuselection eq "7")
+	{
+                # Run a backup
+                system("clear");
+                system("$BackupCommand");
+                print "Press Enter To Continue";
+                my $entered = <STDIN>;
+	}
+	elsif ($menuselection eq "8")
+	{
+		ProcessKill();
+	}
+	elsif ($menuselection eq "9")
+	{
+		# Update Menu
+		UpdateTools();
+	}
+}
+
+exit 0;
